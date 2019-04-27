@@ -14,9 +14,18 @@ import matplotlib.pyplot as plt
 import smtplib
 import getpass
 import time # imported to use sleep function with getpass() not running on pycharm
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
 from pyshorteners import Shortener
+import time
+from reportlab.lib.enums import TA_JUSTIFY
+from reportlab.lib.pagesizes import letter
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Image
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.units import inch
+from reportlab.pdfgen.canvas import Canvas
+import re
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+
 
 # Unordered Notes #
 # Using a fake CSV file with fake info to test the script, the file is in the format name,address,email.
@@ -140,7 +149,7 @@ def createBarGraph(listOfStudents, noDupesReps):
     plt.show()
 
 
-def createEmail(listOfStudents):
+def createEmail(listOfStudents, noDupeReps):
     print("In order for this script to work, you must login to your dtcc account to"
           + " send the mail. \nI was not about to hardcode my details in to make it"
           + " automatic.")
@@ -161,7 +170,12 @@ def createEmail(listOfStudents):
     subj = "VOTE ‘Yes’ on Proposition 611"
     shortener = Shortener('Tinyurl')
     for student in listOfStudents:
+        attachmentDocs = createAttachment(student, noDupeReps)
+        msg = MIMEMultipart('alternative')
+        msg['Subject'] = subj
+        msg['From'] = fro
         to = student["email"]
+        msg['To'] = to
         studentName = {student["name"]}
         studentName = str(studentName).replace("{", "").replace("'", "").replace("}", "")
         mapLink = {student["maplink"]}
@@ -185,12 +199,77 @@ Have a nice day {0}!
 email to disregard it as this was not a real message sent from the school** 
 """
         body = body.format(studentName, finalLink)
+        part1 = MIMEText(body, 'plain')
+        msg.attach(part1)
+        for i in range(len(attachmentDocs)):
+            filename = attachmentDocs[i]
+            fo = open(filename, 'rb')
+            attach = email.mime.application.MIMEApplication(fo.read(), _subtype="pdf")
+            fo.close()
+            attach.add_header('Content-Disposition', 'attachment', filename=filename)
         msg = "Subject: " + subj + "\n\n" + body  # needs keyword Subject
         smtpObj.sendmail(fro, to, msg.translate(replacements))
-        print("Successfully sent letter to: " + student["email"])
-        time.sleep(5) # had to add due to restrictions with URL shortener
+        print("Successfully email letter to: " + student["email"])
+        time.sleep(2) # had to add due to restrictions with URL shortener
 
     smtpObj.quit()
+
+
+def createAttachment(student, noDupeReps):
+    attachmentDocs = []
+    for i in range(len(student['reps'])):
+        print("Creating PDF letter for "+student['name']+" to send to rep "+student['reps'][i])
+
+        doc = SimpleDocTemplate("letter_"+student['reps'][i]+"_by_"+student['name']+".pdf", pagesize=letter,
+                                rightMargin=72, leftMargin=72,
+                                topMargin=72, bottomMargin=18)
+        Story = []
+        for rep in noDupeReps:
+            if rep["RepName"] == student['reps'][i]:
+                #print("Matched "+rep['RepName']+" with "+student['reps'][i])
+                formatted_time = time.ctime()
+                full_name = rep["RepName"]
+                address_parts = re.split(r"\.\s*", rep["RepAddress"])
+                styles = getSampleStyleSheet()
+                styles.add(ParagraphStyle(name='Justify', alignment=TA_JUSTIFY))
+                ptext = '<font size=12>%s</font>' % formatted_time
+
+                Story.append(Paragraph(ptext, styles["Normal"]))
+                Story.append(Spacer(1, 12))
+
+                ptext = '<font size=12>%s</font>' % full_name
+                Story.append(Paragraph(ptext, styles["Normal"]))
+                for part in address_parts:
+                    ptext = '<font size=12>%s</font>' % part.strip()
+                    Story.append(Paragraph(ptext, styles["Normal"]))
+
+                Story.append(Spacer(1, 12))
+                ptext = '<font size=12>Dear %s:</font>' % full_name.split()[0].strip()
+                Story.append(Paragraph(ptext, styles["Normal"]))
+                Story.append(Spacer(1, 12))
+
+                ptext = '<font size=12>I am voting YES for proposition 611 to allow the state to earmark money for students who \
+need financial assistance while taking college courses.</font>'
+
+                Story.append(Paragraph(ptext, styles["Justify"]))
+                Story.append(Spacer(1, 12))
+
+                ptext = '<font size=12>Thank you for your time and for reading this letter.</font>'
+                Story.append(Paragraph(ptext, styles["Justify"]))
+                Story.append(Spacer(1, 12))
+                ptext = '<font size=12>Sincerely,</font>'
+                Story.append(Paragraph(ptext, styles["Normal"]))
+                Story.append(Spacer(1, 24))
+                ptext = '<font size=12>%s</font>' % student['name']
+                Story.append(Paragraph(ptext, styles["Normal"]))
+                Story.append(Spacer(1, 12))
+                ptext = '<font size=12>X_______________________________</font>'
+                Story.append(Paragraph(ptext, styles["Normal"]))
+                Story.append(Spacer(1,24))
+                doc.build(Story)
+                attachmentDocs.append("letter_"+student['reps'][i]+"_by_"+student['name']+".pdf")
+    return attachmentDocs
+
 
 def main():
     listOfStudents = parseCSV("first.csv")  # returns a list of dictionaries containing students info
@@ -200,7 +279,7 @@ def main():
     listOfStudents = confirmMapLink(listOfStudents)
     #printStudents(listOfStudents)
     createBarGraph(listOfStudents, noDupesReps)
-    createEmail(listOfStudents)
+    createEmail(listOfStudents, noDupesReps)
 
 # Function Calls #
 main()
